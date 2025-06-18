@@ -29,7 +29,18 @@ import { Constraint } from "../planegcs_dist/constraints.js";
 //    }
 // }
 
-export type SketchGeometryProperty = 'x' | 'y' | 'radius' | 'start_angle' | 'end_angle' | 'radmin';
+export type SketchGeometryProperty =
+    | 'x'
+    | 'y'
+    | 'radius'
+    | 'start_angle'
+    | 'end_angle'
+    | 'radmin'
+    // B-spline specific properties
+    | 'start_x'
+    | 'start_y'
+    | 'end_x'
+    | 'end_y';
 export const property_offsets = {
     point: {
         x: 0,
@@ -65,16 +76,48 @@ export const property_offsets = {
         end_angle: 1,
         radmin: 2
     },
+    bspline: {
+        // these offsets are relative to the start of the B-spline's parameter
+        // block in p_params; control points, weights and knots are pushed
+        // first, followed by start/end coordinates
+        start_x: 0, // computed dynamically in get_property_offset
+        start_y: 1,
+        end_x: 2,
+        end_y: 3,
+    },
     line: {},
 } as const;
 
-export default function get_property_offset(primitive_type: SketchGeometry['type'], property_key: SketchGeometryProperty): number {
-    const primitive_offsets: Partial<Record<SketchGeometryProperty, number>> = property_offsets[primitive_type];
+export default function get_property_offset(
+    primitive: SketchGeometry,
+    property_key: SketchGeometryProperty
+): number {
+    if (primitive.type === 'bspline') {
+        const base =
+            primitive.control_points.length * 2 +
+            primitive.weights.length +
+            primitive.knots.length;
+        switch (property_key) {
+            case 'start_x':
+                return base + property_offsets.bspline.start_x;
+            case 'start_y':
+                return base + property_offsets.bspline.start_y;
+            case 'end_x':
+                return base + property_offsets.bspline.end_x;
+            case 'end_y':
+                return base + property_offsets.bspline.end_y;
+            default:
+                throw new Error(`Unknown property ${property_key} for primitive <bspline>`);
+        }
+    }
+
+    const primitive_offsets: Partial<Record<SketchGeometryProperty, number>> =
+        property_offsets[primitive.type];
     if (primitive_offsets) {
         const offset = primitive_offsets[property_key];
         if (offset !== undefined) {
             return offset;
         }
     }
-    throw new Error(`Unknown property ${property_key} for primitive <${primitive_type}>`);
+    throw new Error(`Unknown property ${property_key} for primitive <${primitive.type}>`);
 }
