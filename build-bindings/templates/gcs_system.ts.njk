@@ -47,6 +47,18 @@ export interface GcsSystem {
 {% for func in fn_ts_bindings %}
     {{ func.fname }}: ({{ func.args }}) => {{ func.return_type }};
 {%- endfor %}
+    /* B-Spline helpers */
+    make_bspline: (startx_i: number, starty_i: number, endx_i: number, endy_i: number,
+                   poles_xy_i: IntVector, weights_i: IntVector, knots_i: IntVector,
+                   mult: IntVector, degree: number, periodic: boolean) => BSpline;
+    add_constraint_tangent_at_bspline_knot: ( b: BSpline,  l: Line, knotindex: number,
+        tagId: number, driving: boolean, scale: number) => void;
+    add_constraint_point_on_bspline: ( p: Point,  b: BSpline, pointparam_param_i: number,
+        tagId: number, driving: boolean, scale: number) => void;
+    add_constraint_internal_alignment_bspline_control_point: ( b: BSpline, c: Circle,
+        poleindex: number, tag: number, driving: boolean, scale: number) => void;
+    add_constraint_internal_alignment_knot_point: ( b: BSpline,  p: Point,
+        knotindex: number, tagId: number, driving: boolean, scale: number) => void;
     delete: () => void;
 }
 

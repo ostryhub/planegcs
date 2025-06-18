@@ -26,7 +26,7 @@ import { {% for enum_name in import_enums %}{{ enum_name }}, {% endfor -%} } fro
 
 export class GcsSystemMock implements GcsSystem {
     {%- for func in fn_ts_bindings %}
-    {{ func.fname }}({{ func.args }}): {{ func.return_type }} { 
+    {{ func.fname }}({{ func.args }}): {{ func.return_type }} {
         {%- if func.return_type != 'void' %}
         // @ts-expect-error: return in mock can be undefined
         return undefined;
@@ -35,7 +35,39 @@ export class GcsSystemMock implements GcsSystem {
         {%- endif %}
     }
     {%- endfor %}
+    make_bspline(
+        startx_i: number, starty_i: number, endx_i: number, endy_i: number,
+        poles_xy_i: IntVector, weights_i: IntVector, knots_i: IntVector,
+        mult: IntVector, degree: number, periodic: boolean
+    ): BSpline {
+        // @ts-expect-error mock return
+        return undefined;
+    }
+    add_constraint_tangent_at_bspline_knot(
+        b: BSpline, l: Line, knotindex: number, tagId: number,
+        driving: boolean, scale: number
+    ): void {
+        return;
+    }
+    add_constraint_point_on_bspline(
+        p: Point, b: BSpline, pointparam_param_i: number,
+        tagId: number, driving: boolean, scale: number
+    ): void {
+        return;
+    }
+    add_constraint_internal_alignment_bspline_control_point(
+        b: BSpline, c: Circle, poleindex: number, tag: number,
+        driving: boolean, scale: number
+    ): void {
+        return;
+    }
+    add_constraint_internal_alignment_knot_point(
+        b: BSpline, p: Point, knotindex: number, tagId: number,
+        driving: boolean, scale: number
+    ): void {
+        return;
+    }
     delete(): void {
-        return; 
+        return;
     }
 }
