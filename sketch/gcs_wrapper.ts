@@ -520,7 +520,9 @@ export class GcsWrapper {
                     if (!is_sketch_geometry(ref_primitive)) {
                         throw new Error(`Primitive #${val.o_id} (${ref_primitive.type}) is not supported to be referenced from a constraint.`);
                     }
-                    const param_addr = this.get_primitive_addr(val.o_id) + get_property_offset(ref_primitive.type, val.prop);
+                    const param_addr =
+                        this.get_primitive_addr(val.o_id) +
+                        get_property_offset(ref_primitive, val.prop);
                     add_constraint_args.push(param_addr);
                 }
             } else if (type === 'object_id' && typeof val === 'string') {
