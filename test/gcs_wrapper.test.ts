@@ -21,7 +21,7 @@ vi.mock('../planegcs_dist/gcs_system_mock');
 import { SketchIndex } from "../sketch/sketch_index";
 import { GcsWrapper } from "../sketch/gcs_wrapper";
 import { Constraint_Alignment } from "../planegcs_dist/enums";
-import type { SketchCircle, SketchPoint } from '../sketch/sketch_primitive';
+import type { SketchCircle, SketchPoint, SketchBSpline } from '../sketch/sketch_primitive';
 
 let gcs_wrapper: GcsWrapper;
 let gcs: GcsSystemMock;
@@ -104,6 +104,29 @@ describe("basic: gcs_wrapper", () => {
         expect(gcs.push_p_param).toHaveBeenCalledTimes(3 * 2 + 3);
     });
 
+    it("calls gcs when pushing a bspline", () => {
+        gcs_wrapper.push_primitive({type: 'point', id: 's', x: 0, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'e', x: 1, y: 1, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'c1', x: -1, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'c2', x: 2, y: 0, fixed: true});
+
+        gcs_wrapper.push_primitive({
+            type: 'bspline',
+            id: 'b1',
+            start_id: 's',
+            end_id: 'e',
+            control_points: ['c1', 'c2'],
+            weights: [1, 1, 1, 1],
+            knots: [0, 0, 0, 0, 1, 1, 1, 1],
+            multiplicities: [4, 1, 1, 4],
+            degree: 3,
+            periodic: false,
+        });
+
+        // 4 points * 2 params + 4 weights + 8 knots
+        expect(gcs.push_p_param).toHaveBeenCalledTimes(20);
+    });
+
     it("calls add_constraint_equal method when adding an equal constraint", () => {
         const o1_p1_addr = gcs.params_size();
         gcs_wrapper.push_primitive({type: 'point', id: '1', x: 0, y: 0, fixed: false});
@@ -183,11 +206,25 @@ describe("basic: gcs_wrapper", () => {
     it('updates the solved_sketch_index after calling solve', () => {
         gcs_wrapper.push_primitive({type: 'point', id: '1', x: 0, y: 0, fixed: false});
         gcs_wrapper.push_primitive({type: 'point', id: '2', x: 1, y: 2, fixed: false});
+        gcs_wrapper.push_primitive({type: 'point', id: '5', x: -1, y: 0, fixed: false});
+        gcs_wrapper.push_primitive({type: 'point', id: '6', x: 2, y: 0, fixed: false});
         gcs_wrapper.push_primitive({type: 'line', id: '3', p1_id: '1', p2_id: '2'});
         gcs_wrapper.push_primitive({type: 'circle', id: '4', c_id: '1', radius: 3});
+        gcs_wrapper.push_primitive({
+            type: 'bspline',
+            id: 'b1',
+            start_id: '1',
+            end_id: '2',
+            control_points: ['5', '6'],
+            weights: [1, 1, 1, 1],
+            knots: [0, 0, 0, 0, 1, 1, 1, 1],
+            multiplicities: [4, 1, 1, 4],
+            degree: 3,
+            periodic: false,
+        });
 
         const old_primitivs = gcs_wrapper.sketch_index.get_primitives();
-        expect(old_primitivs).toHaveLength(4);
+        expect(old_primitivs).toHaveLength(7);
 
         // does +1 to each parameter
         gcs_wrapper.apply_solution(); 
@@ -210,6 +247,13 @@ describe("basic: gcs_wrapper", () => {
                     {
                         const circle = item as SketchCircle;
                         expect(new_primitive.radius).toBe(circle.radius + 1)
+                        break;
+                    }
+                case 'bspline':
+                    {
+                        const bs = item as SketchBSpline;
+                        expect(new_primitive.weights[0]).toBe(bs.weights[0] + 1)
+                        expect(new_primitive.knots[0]).toBe(bs.knots[0] + 1)
                         break;
                     }
             }
