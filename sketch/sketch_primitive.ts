@@ -81,13 +81,25 @@ export interface SketchHyperbola extends Id {
 }
 
 export interface SketchArcOfHyperbola extends Id, IArc {
-	type: 'arc_of_hyperbola';
-	c_id: oid;
-	focus1_id: oid;
-	radmin: number;
+        type: 'arc_of_hyperbola';
+        c_id: oid;
+        focus1_id: oid;
+        radmin: number;
 }
 
-export type SketchGeometry = SketchPoint | SketchLine | SketchCircle | SketchArc | SketchEllipse | SketchArcOfEllipse | SketchParabola | SketchArcOfParabola | SketchHyperbola | SketchArcOfHyperbola;
+export interface SketchBSpline extends Id {
+        type: 'bspline';
+        start_id: oid;
+        end_id: oid;
+        control_points: oid[];
+        weights: number[];
+        knots: number[];
+        multiplicities: number[];
+        degree: number;
+        periodic: boolean;
+}
+
+export type SketchGeometry = SketchPoint | SketchLine | SketchCircle | SketchArc | SketchEllipse | SketchArcOfEllipse | SketchParabola | SketchArcOfParabola | SketchHyperbola | SketchArcOfHyperbola | SketchBSpline;
 export type SketchPrimitive = SketchGeometry | Constraint;
 
 export interface SketchParam {
@@ -96,7 +108,7 @@ export interface SketchParam {
 	value: number;
 }
 
-const GEOMETRY_TYPES: SketchPrimitive['type'][] = ['point', 'line', 'circle', 'arc', 'ellipse', 'arc_of_ellipse', 'hyperbola', 'arc_of_hyperbola', 'parabola', 'arc_of_parabola'];
+const GEOMETRY_TYPES: SketchPrimitive['type'][] = ['point', 'line', 'circle', 'arc', 'ellipse', 'arc_of_ellipse', 'hyperbola', 'arc_of_hyperbola', 'parabola', 'arc_of_parabola', 'bspline'];
 
 export function is_sketch_geometry(primitive: SketchPrimitive | SketchParam | undefined): primitive is SketchGeometry {
 	if (primitive === undefined || primitive.type === 'param') {
