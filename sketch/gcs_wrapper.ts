@@ -18,13 +18,14 @@
 import type { Constraint, ConstraintParamType } from "../planegcs_dist/constraints";
 import { constraint_param_index } from "../planegcs_dist/constraint_param_index.js";
 import { SketchIndex } from "./sketch_index.js";
-import { emsc_vec_to_arr } from "./emsc_vectors.js";
-import type {  SketchArc, SketchArcOfEllipse, SketchCircle, SketchEllipse, SketchLine, SketchPrimitive, SketchPoint, SketchParam, SketchHyperbola, SketchArcOfHyperbola, SketchParabola, SketchArcOfParabola } from "./sketch_primitive";
+import { emsc_vec_to_arr, arr_to_intvec } from "./emsc_vectors.js";
+import type {  SketchArc, SketchArcOfEllipse, SketchCircle, SketchEllipse, SketchLine, SketchPrimitive, SketchPoint, SketchParam, SketchHyperbola, SketchArcOfHyperbola, SketchParabola, SketchArcOfParabola, SketchBSpline } from "./sketch_primitive";
 import { is_sketch_constraint, is_sketch_geometry } from "./sketch_primitive.js";
 import { type GcsGeometry, type GcsSystem } from "../planegcs_dist/gcs_system.js";
 import { Algorithm, Constraint_Alignment, SolveStatus, DebugMode } from "../planegcs_dist/enums.js";
 import get_property_offset, { property_offsets } from "./geom_params.js";
 import { oid } from "../planegcs_dist/id";
+import type { ModuleStatic } from "../planegcs_dist/planegcs.js";
 
 export class GcsWrapper { 
     gcs: GcsSystem;
@@ -103,6 +104,9 @@ export class GcsWrapper {
                 break;
             case 'arc_of_parabola':
                 this.push_arc_of_parabola(o);
+                break;
+            case 'bspline':
+                this.push_bspline(o);
                 break;
             default:
                 this.push_constraint(o);
@@ -322,6 +326,21 @@ export class GcsWrapper {
         this.push_p_params(ap.id, [ap.start_angle, ap.end_angle], false);
     }
 
+    private push_bspline(bs: SketchBSpline) {
+        const start = this.sketch_index.get_sketch_point(bs.start_id);
+        this.push_point(start);
+
+        const end = this.sketch_index.get_sketch_point(bs.end_id);
+        this.push_point(end);
+
+        for (const cp_id of bs.control_points) {
+            const cp = this.sketch_index.get_sketch_point(cp_id);
+            this.push_point(cp);
+        }
+
+        this.push_p_params(bs.id, [...bs.weights, ...bs.knots], false);
+    }
+
     private push_arc_of_ellipse(ae: SketchArcOfEllipse) {
         const center = this.sketch_index.get_sketch_point(ae.c_id);
         this.push_point(center);
@@ -441,6 +460,43 @@ export class GcsWrapper {
                     end_i + property_offsets.point.x, end_i + property_offsets.point.y,
                     a_i + property_offsets.arc_of_parabola.start_angle, a_i + property_offsets.arc_of_parabola.end_angle
                 );
+            }
+            case 'bspline': {
+                const start_i = this.get_primitive_addr(o.start_id);
+                const end_i = this.get_primitive_addr(o.end_id);
+                const poles: number[] = [];
+                for (const cp_id of o.control_points) {
+                    const cp_i = this.get_primitive_addr(cp_id);
+                    poles.push(cp_i + property_offsets.point.x);
+                    poles.push(cp_i + property_offsets.point.y);
+                }
+                const base = this.get_primitive_addr(o.id);
+                const weight_is = [] as number[];
+                for (let i = 0; i < o.weights.length; ++i) {
+                    weight_is.push(base + i);
+                }
+                const knot_offset = o.weights.length;
+                const knot_is = [] as number[];
+                for (let i = 0; i < o.knots.length; ++i) {
+                    knot_is.push(base + knot_offset + i);
+                }
+
+                const mod = (this.gcs as unknown as {constructor: ModuleStatic}).constructor;
+                const poles_v = arr_to_intvec(mod, poles);
+                const weights_v = arr_to_intvec(mod, weight_is);
+                const knots_v = arr_to_intvec(mod, knot_is);
+                const mult_v = arr_to_intvec(mod, o.multiplicities);
+
+                const geom = this.gcs.make_bspline(
+                    start_i + property_offsets.point.x, start_i + property_offsets.point.y,
+                    end_i + property_offsets.point.x, end_i + property_offsets.point.y,
+                    poles_v, weights_v, knots_v, mult_v, o.degree, o.periodic
+                );
+                poles_v.delete();
+                weights_v.delete();
+                knots_v.delete();
+                mult_v.delete();
+                return geom;
             }
             default:
                 throw new Error(`not-implemented object type: ${o.type}`);
@@ -603,6 +659,8 @@ export class GcsWrapper {
                 this.pull_parabola(p);
             } else if (p.type === 'arc_of_parabola') {
                 this.pull_arc_of_parabola(p);
+            } else if (p.type === 'bspline') {
+                this.pull_bspline(p);
             } else if (is_sketch_constraint(p)) {
                 this.pull_constraint(p);
             } else {
@@ -700,6 +758,25 @@ export class GcsWrapper {
             ...ap,
             start_angle: this.gcs.get_p_param(addr + property_offsets.arc_of_parabola.start_angle),
             end_angle: this.gcs.get_p_param(addr + property_offsets.arc_of_parabola.end_angle),
+        });
+    }
+
+    private pull_bspline(bs: SketchBSpline) {
+        const addr = this.get_primitive_addr(bs.id);
+        const weights: number[] = [];
+        for (let i = 0; i < bs.weights.length; ++i) {
+            weights.push(this.gcs.get_p_param(addr + i));
+        }
+        const knot_offset = bs.weights.length;
+        const knots: number[] = [];
+        for (let i = 0; i < bs.knots.length; ++i) {
+            knots.push(this.gcs.get_p_param(addr + knot_offset + i));
+        }
+
+        this.sketch_index.set_primitive({
+            ...bs,
+            weights,
+            knots,
         });
     }
 
