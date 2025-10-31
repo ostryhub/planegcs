@@ -15,7 +15,7 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 
-import type { SketchPoint, SketchLine, SketchCircle, SketchArc, SketchPrimitive } from "./sketch_primitive";
+import type { SketchPoint, SketchLine, SketchCircle, SketchArc, SketchEllipse, SketchArcOfEllipse, SketchHyperbola, SketchArcOfHyperbola, SketchParabola, SketchArcOfParabola, SketchBSpline, SketchPrimitive } from "./sketch_primitive";
 import { is_sketch_geometry } from "./sketch_primitive.js";
 import type { Constraint } from "../planegcs_dist/constraints";
 import { oid } from "../planegcs_dist/id";
@@ -62,6 +62,55 @@ export abstract class SketchIndexBase {
             throw new Error(`sketch object ${id} is not a sketch arc`);
         }
         return obj as SketchArc;
+    }
+    get_sketch_ellipse(id: oid): SketchEllipse {
+        const obj = this.get_primitive_or_fail(id);
+        if (obj.type !== 'ellipse') {
+            throw new Error(`sketch object ${id} is not a sketch ellipse`);
+        }
+        return obj as SketchEllipse;
+    }
+    get_sketch_arc_of_ellipse(id: oid): SketchArcOfEllipse {
+        const obj = this.get_primitive_or_fail(id);
+        if (obj.type !== 'arc_of_ellipse') {
+            throw new Error(`sketch object ${id} is not a sketch arc of ellipse`);
+        }
+        return obj as SketchArcOfEllipse;
+    }
+    get_sketch_hyperbola(id: oid): SketchHyperbola {
+        const obj = this.get_primitive_or_fail(id);
+        if (obj.type !== 'hyperbola') {
+            throw new Error(`sketch object ${id} is not a sketch hyperbola`);
+        }
+        return obj as SketchHyperbola;
+    }
+    get_sketch_arc_of_hyperbola(id: oid): SketchArcOfHyperbola {
+        const obj = this.get_primitive_or_fail(id);
+        if (obj.type !== 'arc_of_hyperbola') {
+            throw new Error(`sketch object ${id} is not a sketch arc of hyperbola`);
+        }
+        return obj as SketchArcOfHyperbola;
+    }
+    get_sketch_parabola(id: oid): SketchParabola {
+        const obj = this.get_primitive_or_fail(id);
+        if (obj.type !== 'parabola') {
+            throw new Error(`sketch object ${id} is not a sketch parabola`);
+        }
+        return obj as SketchParabola;
+    }
+    get_sketch_arc_of_parabola(id: oid): SketchArcOfParabola {
+        const obj = this.get_primitive_or_fail(id);
+        if (obj.type !== 'arc_of_parabola') {
+            throw new Error(`sketch object ${id} is not a sketch arc of parabola`);
+        }
+        return obj as SketchArcOfParabola;
+    }
+    get_sketch_bspline(id: oid): SketchBSpline {
+        const obj = this.get_primitive_or_fail(id);
+        if (obj.type !== 'bspline') {
+            throw new Error(`sketch object ${id} is not a sketch bspline`);
+        }
+        return obj as SketchBSpline;
     }
     get_constraints(): Constraint[] {
         return this.get_primitives().filter(o => !is_sketch_geometry(o)) as Constraint[];

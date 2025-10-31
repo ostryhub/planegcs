@@ -21,7 +21,7 @@ vi.mock('../planegcs_dist/gcs_system_mock');
 import { SketchIndex } from "../sketch/sketch_index";
 import { GcsWrapper } from "../sketch/gcs_wrapper";
 import { Constraint_Alignment } from "../planegcs_dist/enums";
-import type { SketchCircle, SketchPoint, SketchBSpline } from '../sketch/sketch_primitive';
+import type { SketchCircle, SketchPoint, SketchBSpline, SketchEllipse, SketchArcOfEllipse, SketchHyperbola, SketchArcOfHyperbola, SketchParabola, SketchArcOfParabola } from '../sketch/sketch_primitive';
 
 let gcs_wrapper: GcsWrapper;
 let gcs: GcsSystemMock;
@@ -125,6 +125,142 @@ describe("basic: gcs_wrapper", () => {
 
         // 4 points * 2 params + 4 weights + 8 knots
         expect(gcs.push_p_param).toHaveBeenCalledTimes(20);
+
+        // Test type-safe getter
+        const bspline = gcs_wrapper.sketch_index.get_sketch_bspline('b1');
+        expect(bspline.type).toBe('bspline');
+        expect(bspline.degree).toBe(3);
+        expect(bspline.periodic).toBe(false);
+        expect(bspline.control_points).toHaveLength(2);
+        expect(bspline.weights).toHaveLength(4);
+        expect(bspline.knots).toHaveLength(8);
+    });
+
+    it("calls gcs when pushing an ellipse", () => {
+        gcs_wrapper.push_primitive({type: 'point', id: 'center', x: 0, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'focus1', x: 2, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'ellipse', id: 'e1', c_id: 'center', focus1_id: 'focus1', radmin: 3});
+
+        // 2 points * 2 params + 1 radmin param
+        expect(gcs.push_p_param).toHaveBeenCalledTimes(5);
+        expect(gcs.push_p_param).toHaveBeenNthCalledWith(5, 3, false);
+
+        // Test type-safe getter
+        const ellipse = gcs_wrapper.sketch_index.get_sketch_ellipse('e1');
+        expect(ellipse.type).toBe('ellipse');
+        expect(ellipse.radmin).toBe(3);
+    });
+
+    it("calls gcs when pushing an arc of ellipse", () => {
+        gcs_wrapper.push_primitive({type: 'point', id: 'center', x: 0, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'focus1', x: 2, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'start', x: 5, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'end', x: 0, y: 3, fixed: true});
+        gcs_wrapper.push_primitive({
+            type: 'arc_of_ellipse',
+            id: 'ae1',
+            c_id: 'center',
+            focus1_id: 'focus1',
+            start_id: 'start',
+            end_id: 'end',
+            radmin: 3,
+            start_angle: 0,
+            end_angle: Math.PI / 2
+        });
+
+        // 4 points * 2 params + 3 arc params (start_angle, end_angle, radmin)
+        expect(gcs.push_p_param).toHaveBeenCalledTimes(11);
+
+        // Test type-safe getter
+        const arcOfEllipse = gcs_wrapper.sketch_index.get_sketch_arc_of_ellipse('ae1');
+        expect(arcOfEllipse.type).toBe('arc_of_ellipse');
+        expect(arcOfEllipse.radmin).toBe(3);
+        expect(arcOfEllipse.start_angle).toBe(0);
+        expect(arcOfEllipse.end_angle).toBe(Math.PI / 2);
+    });
+
+    it("calls gcs when pushing a hyperbola", () => {
+        gcs_wrapper.push_primitive({type: 'point', id: 'center', x: 0, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'focus1', x: 5, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'hyperbola', id: 'h1', c_id: 'center', focus1_id: 'focus1', radmin: 3});
+
+        // 2 points * 2 params + 1 radmin param
+        expect(gcs.push_p_param).toHaveBeenCalledTimes(5);
+        expect(gcs.push_p_param).toHaveBeenNthCalledWith(5, 3, false);
+
+        // Test type-safe getter
+        const hyperbola = gcs_wrapper.sketch_index.get_sketch_hyperbola('h1');
+        expect(hyperbola.type).toBe('hyperbola');
+        expect(hyperbola.radmin).toBe(3);
+    });
+
+    it("calls gcs when pushing an arc of hyperbola", () => {
+        gcs_wrapper.push_primitive({type: 'point', id: 'center', x: 0, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'focus1', x: 5, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'start', x: 4, y: 2, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'end', x: 4, y: -2, fixed: true});
+        gcs_wrapper.push_primitive({
+            type: 'arc_of_hyperbola',
+            id: 'ah1',
+            c_id: 'center',
+            focus1_id: 'focus1',
+            start_id: 'start',
+            end_id: 'end',
+            radmin: 3,
+            start_angle: 0.5,
+            end_angle: -0.5
+        });
+
+        // 4 points * 2 params + 3 arc params (start_angle, end_angle, radmin)
+        expect(gcs.push_p_param).toHaveBeenCalledTimes(11);
+
+        // Test type-safe getter
+        const arcOfHyperbola = gcs_wrapper.sketch_index.get_sketch_arc_of_hyperbola('ah1');
+        expect(arcOfHyperbola.type).toBe('arc_of_hyperbola');
+        expect(arcOfHyperbola.radmin).toBe(3);
+        expect(arcOfHyperbola.start_angle).toBe(0.5);
+        expect(arcOfHyperbola.end_angle).toBe(-0.5);
+    });
+
+    it("calls gcs when pushing a parabola", () => {
+        gcs_wrapper.push_primitive({type: 'point', id: 'vertex', x: 0, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'focus1', x: 1, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'parabola', id: 'p1', vertex_id: 'vertex', focus1_id: 'focus1'});
+
+        // 2 points * 2 params (no additional params for parabola)
+        expect(gcs.push_p_param).toHaveBeenCalledTimes(4);
+
+        // Test type-safe getter
+        const parabola = gcs_wrapper.sketch_index.get_sketch_parabola('p1');
+        expect(parabola.type).toBe('parabola');
+        expect(parabola.vertex_id).toBe('vertex');
+        expect(parabola.focus1_id).toBe('focus1');
+    });
+
+    it("calls gcs when pushing an arc of parabola", () => {
+        gcs_wrapper.push_primitive({type: 'point', id: 'vertex', x: 0, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'focus1', x: 1, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'start', x: 1, y: 2, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'end', x: 1, y: -2, fixed: true});
+        gcs_wrapper.push_primitive({
+            type: 'arc_of_parabola',
+            id: 'ap1',
+            vertex_id: 'vertex',
+            focus1_id: 'focus1',
+            start_id: 'start',
+            end_id: 'end',
+            start_angle: 1,
+            end_angle: -1
+        });
+
+        // 4 points * 2 params + 2 arc params (start_angle, end_angle)
+        expect(gcs.push_p_param).toHaveBeenCalledTimes(10);
+
+        // Test type-safe getter
+        const arcOfParabola = gcs_wrapper.sketch_index.get_sketch_arc_of_parabola('ap1');
+        expect(arcOfParabola.type).toBe('arc_of_parabola');
+        expect(arcOfParabola.start_angle).toBe(1);
+        expect(arcOfParabola.end_angle).toBe(-1);
     });
 
     it("calls add_constraint_equal method when adding an equal constraint", () => {
@@ -258,6 +394,92 @@ describe("basic: gcs_wrapper", () => {
                     }
             }
         }
+    });
+
+    it('updates advanced geometric entities after calling solve', () => {
+        // Add points for all advanced entities
+        gcs_wrapper.push_primitive({type: 'point', id: 'center1', x: 0, y: 0, fixed: false});
+        gcs_wrapper.push_primitive({type: 'point', id: 'focus1', x: 3, y: 0, fixed: false});
+        gcs_wrapper.push_primitive({type: 'point', id: 'start1', x: 5, y: 0, fixed: false});
+        gcs_wrapper.push_primitive({type: 'point', id: 'end1', x: 0, y: 4, fixed: false});
+        gcs_wrapper.push_primitive({type: 'point', id: 'vertex1', x: 0, y: 0, fixed: false});
+
+        // Add ellipse
+        gcs_wrapper.push_primitive({type: 'ellipse', id: 'e1', c_id: 'center1', focus1_id: 'focus1', radmin: 2});
+
+        // Add arc of ellipse
+        gcs_wrapper.push_primitive({
+            type: 'arc_of_ellipse',
+            id: 'ae1',
+            c_id: 'center1',
+            focus1_id: 'focus1',
+            start_id: 'start1',
+            end_id: 'end1',
+            radmin: 2,
+            start_angle: 0,
+            end_angle: Math.PI / 2
+        });
+
+        // Add hyperbola
+        gcs_wrapper.push_primitive({type: 'hyperbola', id: 'h1', c_id: 'center1', focus1_id: 'focus1', radmin: 2});
+
+        // Add arc of hyperbola
+        gcs_wrapper.push_primitive({
+            type: 'arc_of_hyperbola',
+            id: 'ah1',
+            c_id: 'center1',
+            focus1_id: 'focus1',
+            start_id: 'start1',
+            end_id: 'end1',
+            radmin: 2,
+            start_angle: 0.5,
+            end_angle: -0.5
+        });
+
+        // Add parabola
+        gcs_wrapper.push_primitive({type: 'parabola', id: 'p1', vertex_id: 'vertex1', focus1_id: 'focus1'});
+
+        // Add arc of parabola
+        gcs_wrapper.push_primitive({
+            type: 'arc_of_parabola',
+            id: 'ap1',
+            vertex_id: 'vertex1',
+            focus1_id: 'focus1',
+            start_id: 'start1',
+            end_id: 'end1',
+            start_angle: 1,
+            end_angle: -1
+        });
+
+        const old_primitives = gcs_wrapper.sketch_index.get_primitives();
+
+        // does +1 to each parameter
+        gcs_wrapper.apply_solution();
+
+        // Test ellipse
+        const ellipse = gcs_wrapper.sketch_index.get_sketch_ellipse('e1');
+        expect(ellipse.radmin).toBe(3); // 2 + 1
+
+        // Test arc of ellipse
+        const arcOfEllipse = gcs_wrapper.sketch_index.get_sketch_arc_of_ellipse('ae1');
+        expect(arcOfEllipse.start_angle).toBe(1); // 0 + 1
+        expect(arcOfEllipse.end_angle).toBeCloseTo(Math.PI / 2 + 1);
+        expect(arcOfEllipse.radmin).toBe(3); // 2 + 1
+
+        // Test hyperbola
+        const hyperbola = gcs_wrapper.sketch_index.get_sketch_hyperbola('h1');
+        expect(hyperbola.radmin).toBe(3); // 2 + 1
+
+        // Test arc of hyperbola
+        const arcOfHyperbola = gcs_wrapper.sketch_index.get_sketch_arc_of_hyperbola('ah1');
+        expect(arcOfHyperbola.start_angle).toBe(1.5); // 0.5 + 1
+        expect(arcOfHyperbola.end_angle).toBe(0.5); // -0.5 + 1
+        expect(arcOfHyperbola.radmin).toBe(3); // 2 + 1
+
+        // Test arc of parabola
+        const arcOfParabola = gcs_wrapper.sketch_index.get_sketch_arc_of_parabola('ap1');
+        expect(arcOfParabola.start_angle).toBe(2); // 1 + 1
+        expect(arcOfParabola.end_angle).toBe(0); // -1 + 1
     });
 
     it("calls correctly the arc2arc perpendicular constraint with boolean parameters", () => {
