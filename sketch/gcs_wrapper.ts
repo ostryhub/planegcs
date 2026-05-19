@@ -160,19 +160,19 @@ export class GcsWrapper {
         return emsc_vec_to_arr(this.gcs.get_p_params());
     }
 
-    get_gcs_conflicting_constraints(): string[] {
+    get_gcs_conflicting_constraints(): oid[] {
         return emsc_vec_to_arr(this.gcs.get_conflicting()).map(
             (i) => this.sketch_index.get_id_by_index(i)
         );
     }
 
-    get_gcs_redundant_constraints(): string[] {
+    get_gcs_redundant_constraints(): oid[] {
         return emsc_vec_to_arr(this.gcs.get_redundant()).map(
             (i) => this.sketch_index.get_id_by_index(i)
         );
     }
 
-    get_gcs_partially_redundant_constraints(): string[] {
+    get_gcs_partially_redundant_constraints(): oid[] {
         return emsc_vec_to_arr(this.gcs.get_partially_redundant()).map(
             (i) => this.sketch_index.get_id_by_index(i)
         );
@@ -418,11 +418,11 @@ export class GcsWrapper {
             case 'hyperbola': {
                 const c_i = this.get_primitive_addr(o.c_id);
                 const focus1_i = this.get_primitive_addr(o.focus1_id);
-                const radmin_i = this.get_primitive_addr(o.id + property_offsets.hyperbola.radmin);
+                const hyperbola_i = this.get_primitive_addr(o.id);
                 return this.gcs.make_hyperbola(
                     c_i + property_offsets.point.x, c_i + property_offsets.point.y,
                     focus1_i + property_offsets.point.x, focus1_i + property_offsets.point.y,
-                    radmin_i + property_offsets.hyperbola.radmin
+                    hyperbola_i + property_offsets.hyperbola.radmin
                 );
             }
             case 'arc_of_hyperbola': {
@@ -581,7 +581,7 @@ export class GcsWrapper {
                         get_property_offset(ref_primitive, val.prop);
                     add_constraint_args.push(param_addr);
                 }
-            } else if (type === 'object_id' && typeof val === 'string') {
+            } else if (type === 'object_id' && (typeof val === 'string' || typeof val === 'number')) {
                 const obj = this.sketch_index.get_primitive_or_fail(val);
                 const gcs_obj = this.sketch_primitive_to_gcs(obj);
                 add_constraint_args.push(gcs_obj);
@@ -615,17 +615,21 @@ export class GcsWrapper {
         }
     }
 
-    // delete_constraint_by_id(id: oid): boolean {
-    //     if (id !== '-1') {
-    //         const item = this.sketch_index.get_primitive(id);
-    //         if (item !== undefined && !is_sketch_geometry(item)) {
-    //             throw new Error(`object #${id} (${item.type}) is not a constraint (delete_constraint_by_id)`);
-    //         }
-    //     }
+    delete_constraint_by_id(id: oid): boolean {
+        const numericId = typeof id === 'number' ? id : Number(id);
+        if (!Number.isFinite(numericId)) {
+            throw new Error(`constraint id ${id} cannot be cleared from GCS because it is not numeric`);
+        }
+        if (id !== -1) {
+            const item = this.sketch_index.get_primitive(id);
+            if (item !== undefined && is_sketch_geometry(item)) {
+                throw new Error(`object #${id} (${item.type}) is not a constraint (delete_constraint_by_id)`);
+            }
+        }
 
-    //     this.gcs.clear_by_id(id);
-    //     return this.sketch_index.delete_primitive(id);
-    // }
+        this.gcs.clear_by_id(numericId);
+        return this.sketch_index.delete_primitive(id);
+    }
 
     private get_primitive_addr(id: oid): number {
         const addr = this.p_param_index.get(id);

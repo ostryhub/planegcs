@@ -21,7 +21,7 @@ set -e
 
 mkdir -p ../planegcs_dist
 
-npx tsx ./render_templates.ts \
+../node_modules/.bin/tsx ./render_templates.ts \
      gcs_system.cpp.njk ../planegcs/bindings.cpp \
      enums.ts.njk ../planegcs_dist/enums.ts \
      id.ts.njk ../planegcs_dist/id.ts \

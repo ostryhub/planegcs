@@ -143,25 +143,29 @@ export function for_each_referenced_id(p: SketchPrimitive, f: (id: oid) => oid |
 	}
 
 	for (const [key, val] of Object.entries(p)) {
-		if (key.endsWith('_id') && typeof val === 'string') {
+		if (key.endsWith('_id') && is_oid(val)) {
 			const new_val = f(val);
 			if (new_val !== undefined) {
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any
-				(p as any)[key] = f(val);
+				(p as any)[key] = new_val;
 			}
-		} else if (typeof val === 'object' && val !== null && 'o_id' in val && typeof val['o_id'] === 'string') {
+		} else if (typeof val === 'object' && val !== null && 'o_id' in val && is_oid(val['o_id'])) {
 			const new_o_id = f(val.o_id);
 			// some constraints have the o_id inside the object
 			// see e.g. difference constraint in horizontal/vertical distance tool
 			if (new_o_id !== undefined) {
-				val.o_id = f(val.o_id);
+				val.o_id = new_o_id;
 			}
 		}
 	}
 }
 
 export function get_constrained_primitive_ids(p: SketchPrimitive): oid[] {
-	const ids: string[] = [];
+	const ids: oid[] = [];
 	for_each_referenced_id(p, (id) => { ids.push(id); return undefined; });
 	return ids;
+}
+
+function is_oid(value: unknown): value is oid {
+	return typeof value === 'string' || typeof value === 'number';
 }
