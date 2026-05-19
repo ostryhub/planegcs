@@ -141,3 +141,60 @@ Replace or harden before LTBL consumption:
 - Rational weights are carried and solved when supplied. UI authoring defaults to non-rational weights of `1`.
 - Tangency at arbitrary curve parameter is out of scope.
 - Curve-curve tangency is out of scope unless a later FreeCAD audit promotes a tested knot-only mapping.
+
+## Phase 6 Directional Curve Constraint Audit
+
+Phase 6 re-audited FreeCAD commit `d8a049cdb9c0685484333072b87e7434e1ea7e57` for tangent, parallel, and perpendicular constraints involving B-splines. The directly relevant files/symbols are:
+
+- `src/Mod/Sketcher/App/Sketch.cpp`
+  - `Sketch::addAngleAtPointConstraint`
+  - `Sketch::addPointOnObjectConstraint`
+  - `Sketch::addTangentLineAtBSplineKnotConstraint`
+- `src/Mod/Sketcher/App/SketchObjectConstraints.cpp`
+  - `SketchObject::calculateAngleViaPoint`
+- `src/Mod/Sketcher/Gui/CommandConstraints.cpp`
+  - tangent/perpendicular command routing and autolock helpers
+- `src/Mod/Sketcher/App/planegcs/GCS.cpp`
+  - `System::addConstraintAngleViaPoint`
+  - `System::addConstraintAngleViaPointAndParam`
+  - `System::addConstraintAngleViaPointAndTwoParams`
+  - `System::addConstraintTangentAtBSplineKnot`
+- `src/Mod/Sketcher/App/planegcs/Constraints.cpp`
+  - `ConstraintAngleViaPoint`
+  - `ConstraintAngleViaPointAndParam`
+  - `ConstraintAngleViaPointAndTwoParams`
+  - `ConstraintSlopeAtBSplineKnot`
+
+FreeCAD has two relevant B-spline directional paths:
+
+- Line-to-B-spline tangent at a C1 knot uses `tangent_at_bspline_knot`. This is line-only, rejects C0 knots, and rejects endpoint knot helper usage in favor of endpoint constraints.
+- Generic tangent/perpendicular through a point and one B-spline parameter uses `angle_via_point_and_param`. FreeCAD computes the nearest B-spline parameter, adds point-on-object where the command variant requires contact, then calls `GCSsys.addConstraintAngleViaPointAndParam(*bspline, *otherCurve, point, pointparam, angle, tag, driving)`.
+
+`ConstraintAngleViaPointAndParam` compares normals. Therefore:
+
+- `angle = 0` means normals are parallel, which makes segment and curve tangents parallel. LTBL uses this for both tangent and parallel segment-curve constraints.
+- `angle = pi / 2` means normals are perpendicular, which makes the segment perpendicular to the curve tangent.
+- The B-spline must be the first curve argument so the fixed parameter applies to the curve, while the segment is the second curve argument evaluated through the selected line point.
+
+The current LTBL Phase 6 implementation does not route through `angle_via_point_and_param` for edit-mode body picks. Real-wasm regression tests showed that the existing generated wrapper accepts the primitive but PlaneGCS reports that directional constraint itself as conflicting in the body-pick orientation-only case. To keep this phase shippable and DOF-correct, LTBL uses the FreeCAD endpoint rule for the supported body-pick workflow: the curve pick resolves to the nearest endpoint tangent reference, and the solver receives a standard point-pair angle constraint between the segment endpoint ray and the curve endpoint control-polygon tangent.
+
+Phase 6 LTBL support matrix:
+
+| LTBL pick pair | tangent | parallel | perpendicular | solver primitive |
+| --- | --- | --- | --- | --- |
+| segment + spline | supported at nearest endpoint tangent | supported at nearest endpoint tangent | supported at nearest endpoint tangent | `l2l_angle_pppp` between segment endpoint ray and endpoint control-polygon tangent |
+| segment + Bezier | supported LTBL extension at nearest endpoint tangent | supported LTBL extension at nearest endpoint tangent | supported LTBL extension at nearest endpoint tangent | `l2l_angle_pppp` between segment endpoint ray and endpoint control-polygon tangent |
+| segment + segment | existing | existing | existing | existing line-line primitives |
+| spline + spline | unsupported | unsupported | unsupported | requires two curve parameters and separate UX/contact semantics |
+| spline + Bezier | unsupported | unsupported | unsupported | requires two curve parameters and separate UX/contact semantics |
+| Bezier + Bezier | unsupported | unsupported | unsupported | requires two curve parameters and separate UX/contact semantics |
+| curve + circle/arc | unsupported in Phase 6 | unsupported in Phase 6 | unsupported in Phase 6 | not audited into LTBL yet |
+
+LTBL stores segment-curve directional constraints as stable endpoint curve parameter references, never display polyline samples. The edit-mode pick point is resolved to the nearest spline/Bezier endpoint and the nearest segment endpoint. The stored constraint keeps the curve id plus the endpoint parameter (`domain start`/`domain end` for splines, `0`/`1` for Beziers) and the endpoint tangent control-point pair used by the solver. The solver DTO then lowers:
+
+- `tangent_curve_segment` and `parallel_curve_segment` to `l2l_angle_pppp(..., angle = 0)`.
+- `perpendicular_curve_segment` to `l2l_angle_pppp(..., angle = pi / 2)`.
+
+This Phase 6 mapping is intentionally directional. Existing point-on-curve constraints remain the explicit contact mechanism when the user wants a segment endpoint constrained to the curve at the same location. This keeps DOF reporting truthful because no hidden helper geometry or sampled approximation is introduced.
+
+Generic interior-parameter tangent/perpendicular/parallel remains a future fork hardening item: it should use `angle_via_point_and_param` only after a fork-level real-wasm test proves the generated binding reduces DOF without being marked conflicting.
