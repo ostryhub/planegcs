@@ -22,16 +22,40 @@ import { SketchIndex } from "../sketch/sketch_index";
 import { GcsWrapper } from "../sketch/gcs_wrapper";
 import { Constraint_Alignment } from "../planegcs_dist/enums";
 import type { SketchCircle, SketchPoint, SketchBSpline } from '../sketch/sketch_primitive';
+import type { BSpline, Circle } from '../planegcs_dist/gcs_system';
+import type { ModuleStatic } from '../planegcs_dist/planegcs';
 
 let gcs_wrapper: GcsWrapper;
 let gcs: GcsSystemMock;
+
+class TestIntVector {
+    private readonly values: number[] = [];
+
+    get(index: number) {
+        return this.values[index] as number;
+    }
+
+    size() {
+        return this.values.length;
+    }
+
+    delete() {
+        return;
+    }
+
+    push_back(value: number) {
+        this.values.push(value);
+    }
+}
+
+const gcs_module = { IntVector: TestIntVector } as unknown as ModuleStatic;
 
 // the prefix 'basic:' makes this test run before the wasm compilation
 // in the pipeline process
 describe("basic: gcs_wrapper", () => {
     beforeAll(() => {
         gcs = new GcsSystemMock();
-        gcs_wrapper = new GcsWrapper(gcs);
+        gcs_wrapper = new GcsWrapper(gcs, gcs_module);
     });
 
     beforeEach(() => {
@@ -115,16 +139,40 @@ describe("basic: gcs_wrapper", () => {
             id: 'b1',
             start_id: 's',
             end_id: 'e',
-            control_points: ['c1', 'c2'],
+            control_points: ['s', 'c1', 'c2', 'e'],
             weights: [1, 1, 1, 1],
-            knots: [0, 0, 0, 0, 1, 1, 1, 1],
-            multiplicities: [4, 1, 1, 4],
+            knots: [0, 1],
+            multiplicities: [4, 4],
             degree: 3,
             periodic: false,
         });
 
-        // 4 points * 2 params + 4 weights + 8 knots
-        expect(gcs.push_p_param).toHaveBeenCalledTimes(20);
+        // 4 points * 2 params + 4 weights + 2 unique knots
+        expect(gcs.push_p_param).toHaveBeenCalledTimes(14);
+        expect(gcs.push_p_param).toHaveBeenNthCalledWith(9, 1, false);
+        expect(gcs.push_p_param).toHaveBeenNthCalledWith(12, 1, false);
+        expect(gcs.push_p_param).toHaveBeenNthCalledWith(13, 0, true);
+        expect(gcs.push_p_param).toHaveBeenNthCalledWith(14, 1, true);
+    });
+
+    it("lowers Bezier primitives to fixed-knot B-splines", () => {
+        gcs_wrapper.push_primitive({type: 'point', id: 'p0', x: 0, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'p1', x: 1, y: 2, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'p2', x: 3, y: 2, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'p3', x: 4, y: 0, fixed: true});
+
+        gcs_wrapper.push_primitive({
+            type: 'bezier',
+            id: 'b1',
+            control_points: ['p0', 'p1', 'p2', 'p3'],
+        });
+
+        // 4 points * 2 params + 4 default fixed weights + 2 fixed unique knots
+        expect(gcs.push_p_param).toHaveBeenCalledTimes(14);
+        expect(gcs.push_p_param).toHaveBeenNthCalledWith(9, 1, true);
+        expect(gcs.push_p_param).toHaveBeenNthCalledWith(12, 1, true);
+        expect(gcs.push_p_param).toHaveBeenNthCalledWith(13, 0, true);
+        expect(gcs.push_p_param).toHaveBeenNthCalledWith(14, 1, true);
     });
 
     it("calls add_constraint_equal method when adding an equal constraint", () => {
@@ -198,6 +246,12 @@ describe("basic: gcs_wrapper", () => {
             6, 7, 8);
         expect(gcs.make_point).toHaveBeenCalledWith(4, 5);
 
+        expect(line.delete).toHaveBeenCalledTimes(0);
+        expect(arc.delete).toHaveBeenCalledTimes(0);
+        expect(point.delete).toHaveBeenCalledTimes(0);
+
+        gcs_wrapper.clear_data();
+
         expect(line.delete).toHaveBeenCalledTimes(1);
         expect(arc.delete).toHaveBeenCalledTimes(1);
         expect(point.delete).toHaveBeenCalledTimes(1);
@@ -215,10 +269,10 @@ describe("basic: gcs_wrapper", () => {
             id: 'b1',
             start_id: '1',
             end_id: '2',
-            control_points: ['5', '6'],
+            control_points: ['1', '5', '6', '2'],
             weights: [1, 1, 1, 1],
-            knots: [0, 0, 0, 0, 1, 1, 1, 1],
-            multiplicities: [4, 1, 1, 4],
+            knots: [0, 1],
+            multiplicities: [4, 4],
             degree: 3,
             periodic: false,
         });
@@ -258,6 +312,51 @@ describe("basic: gcs_wrapper", () => {
                     }
             }
         }
+    });
+
+    it("passes B-spline internal alignment indexes as numbers", () => {
+        const bspline = { delete: vi.fn() } satisfies BSpline;
+        const circle = { delete: vi.fn() } satisfies Circle;
+
+        vi.spyOn(gcs, 'make_bspline').mockReturnValue(bspline);
+        vi.spyOn(gcs, 'make_circle').mockReturnValue(circle);
+
+        gcs_wrapper.push_primitive({type: 'point', id: 's', x: 0, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'c1', x: 1, y: 2, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'c2', x: 3, y: 2, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'e', x: 4, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'circle-center', x: 1, y: 2, fixed: true});
+        gcs_wrapper.push_primitive({type: 'circle', id: 'weight-circle', c_id: 'circle-center', radius: 1});
+        gcs_wrapper.push_primitive({
+            type: 'bspline',
+            id: 'b1',
+            start_id: 's',
+            end_id: 'e',
+            control_points: ['s', 'c1', 'c2', 'e'],
+            weights: [1, 1, 1, 1],
+            knots: [0, 1],
+            multiplicities: [4, 4],
+            degree: 3,
+            periodic: false,
+        });
+
+        gcs_wrapper.push_primitive({
+            type: 'internal_alignment_bspline_control_point',
+            id: 'align-pole',
+            b_id: 'b1',
+            c_id: 'weight-circle',
+            poleindex: 1,
+        });
+
+        expect(gcs.add_constraint_internal_alignment_bspline_control_point)
+            .toHaveBeenCalledWith(bspline, circle, 1, 8, true, 1);
+        expect(bspline.delete).toHaveBeenCalledTimes(0);
+        expect(circle.delete).toHaveBeenCalledTimes(0);
+
+        gcs_wrapper.clear_data();
+
+        expect(bspline.delete).toHaveBeenCalledTimes(1);
+        expect(circle.delete).toHaveBeenCalledTimes(1);
     });
 
     it("calls correctly the arc2arc perpendicular constraint with boolean parameters", () => {

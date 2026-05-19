@@ -19,16 +19,18 @@ import type { Constraint, ConstraintParamType } from "../planegcs_dist/constrain
 import { constraint_param_index } from "../planegcs_dist/constraint_param_index.js";
 import { SketchIndex } from "./sketch_index.js";
 import { emsc_vec_to_arr, arr_to_intvec } from "./emsc_vectors.js";
-import type {  SketchArc, SketchArcOfEllipse, SketchCircle, SketchEllipse, SketchLine, SketchPrimitive, SketchPoint, SketchParam, SketchHyperbola, SketchArcOfHyperbola, SketchParabola, SketchArcOfParabola, SketchBSpline } from "./sketch_primitive";
+import { lower_bezier_to_bspline, validate_bspline_shape } from "./bezier.js";
+import type {  SketchArc, SketchArcOfEllipse, SketchCircle, SketchEllipse, SketchLine, SketchPrimitive, SketchPoint, SketchParam, SketchHyperbola, SketchArcOfHyperbola, SketchParabola, SketchArcOfParabola, SketchBSpline, SketchBezier } from "./sketch_primitive";
 import { is_sketch_constraint, is_sketch_geometry } from "./sketch_primitive.js";
 import { type GcsGeometry, type GcsSystem } from "../planegcs_dist/gcs_system.js";
 import { Algorithm, Constraint_Alignment, SolveStatus, DebugMode } from "../planegcs_dist/enums.js";
 import get_property_offset, { property_offsets } from "./geom_params.js";
-import { oid } from "../planegcs_dist/id";
+import type { oid } from "../planegcs_dist/id";
 import type { ModuleStatic } from "../planegcs_dist/planegcs.js";
 
 export class GcsWrapper { 
     gcs: GcsSystem;
+    private readonly gcs_module?: ModuleStatic;
     p_param_index: Map<oid, number> = new Map();
     sketch_index = new SketchIndex();
     // sketch param name -> index in gcs params
@@ -36,6 +38,7 @@ export class GcsWrapper {
     // nondriving constraint id -> list of its properties pushed as p-params (in order)
     private nondriving_constraint_params_order: Map<oid, string[]> = new Map(); 
     private enable_equal_optimization = false;
+    private retained_gcs_geometry: GcsGeometry[] = [];
 
     get debug_mode() {
         return this.gcs.get_debug_mode() as DebugMode;
@@ -53,19 +56,22 @@ export class GcsWrapper {
         this.enable_equal_optimization = val;
     }
 
-    constructor(gcs: GcsSystem) {
+    constructor(gcs: GcsSystem, gcs_module?: ModuleStatic) {
         this.gcs = gcs;
+        this.gcs_module = gcs_module;
     }
 
     destroy_gcs_module() {
         // only call before the deleting of this object
         this.gcs.clear_data();
+        this.release_retained_gcs_geometry();
         this.gcs.delete();
     }
 
     clear_data() {
         this.nondriving_constraint_params_order.clear();
         this.gcs.clear_data();
+        this.release_retained_gcs_geometry();
         this.p_param_index.clear();
         this.sketch_param_index.clear();
         this.sketch_index.clear();
@@ -107,6 +113,9 @@ export class GcsWrapper {
                 break;
             case 'bspline':
                 this.push_bspline(o);
+                break;
+            case 'bezier':
+                this.push_bezier(o);
                 break;
             default:
                 this.push_constraint(o);
@@ -327,6 +336,8 @@ export class GcsWrapper {
     }
 
     private push_bspline(bs: SketchBSpline) {
+        validate_bspline_shape(bs);
+
         const start = this.sketch_index.get_sketch_point(bs.start_id);
         this.push_point(start);
 
@@ -338,7 +349,30 @@ export class GcsWrapper {
             this.push_point(cp);
         }
 
-        this.push_p_params(bs.id, [...bs.weights, ...bs.knots], false);
+        this.push_bspline_scalar_params(bs);
+    }
+
+    private push_bezier(bezier: SketchBezier) {
+        this.push_bspline(lower_bezier_to_bspline(bezier));
+    }
+
+    private push_bspline_scalar_params(bs: SketchBSpline): number {
+        const pos = this.gcs.params_size();
+        const are_weights_fixed = !(bs.mutable_weights ?? true);
+        const are_knots_fixed = !(bs.mutable_knots ?? false);
+
+        for (const value of bs.weights) {
+            this.gcs.push_p_param(value, are_weights_fixed);
+        }
+        for (const value of bs.knots) {
+            this.gcs.push_p_param(value, are_knots_fixed);
+        }
+
+        if (!this.p_param_index.has(bs.id)) {
+            this.p_param_index.set(bs.id, pos);
+        }
+
+        return pos;
     }
 
     private push_arc_of_ellipse(ae: SketchArcOfEllipse) {
@@ -462,6 +496,7 @@ export class GcsWrapper {
                 );
             }
             case 'bspline': {
+                validate_bspline_shape(o);
                 const start_i = this.get_primitive_addr(o.start_id);
                 const end_i = this.get_primitive_addr(o.end_id);
                 const poles: number[] = [];
@@ -481,11 +516,10 @@ export class GcsWrapper {
                     knot_is.push(base + knot_offset + i);
                 }
 
-                const mod = (this.gcs as unknown as {constructor: ModuleStatic}).constructor;
-                const poles_v = arr_to_intvec(mod, poles);
-                const weights_v = arr_to_intvec(mod, weight_is);
-                const knots_v = arr_to_intvec(mod, knot_is);
-                const mult_v = arr_to_intvec(mod, o.multiplicities);
+                const poles_v = this.make_int_vector(poles);
+                const weights_v = this.make_int_vector(weight_is);
+                const knots_v = this.make_int_vector(knot_is);
+                const mult_v = this.make_int_vector(o.multiplicities);
 
                 const geom = this.gcs.make_bspline(
                     start_i + property_offsets.point.x, start_i + property_offsets.point.y,
@@ -498,9 +532,18 @@ export class GcsWrapper {
                 mult_v.delete();
                 return geom;
             }
+            case 'bezier':
+                return this.sketch_primitive_to_gcs(lower_bezier_to_bspline(o));
             default:
                 throw new Error(`not-implemented object type: ${o.type}`);
             }
+    }
+
+    private make_int_vector(values: number[]) {
+        if (this.gcs_module === undefined) {
+            throw new Error('GcsWrapper needs the PlaneGCS module object to create B-spline vector arguments');
+        }
+        return arr_to_intvec(this.gcs_module, values);
     }
 
     private push_constraint(c: Constraint) {
@@ -609,10 +652,8 @@ export class GcsWrapper {
             }
         }
 
-        // wasm-allocated objects must be manually deleted 
-        for (const geom_shape of deletable) {
-            geom_shape.delete();
-        }
+        // Some PlaneGCS constraints retain geometry references. Release these only after clear_data().
+        this.retained_gcs_geometry.push(...deletable);
     }
 
     delete_constraint_by_id(id: oid): boolean {
@@ -637,6 +678,13 @@ export class GcsWrapper {
             throw new Error(`sketch object ${id} not found in p-params index`);
         }
         return addr;
+    }
+
+    private release_retained_gcs_geometry() {
+        for (const geom_shape of this.retained_gcs_geometry) {
+            geom_shape.delete();
+        }
+        this.retained_gcs_geometry = [];
     }
 
     // ------- GCS -> Sketch ------- (when retrieving a solution)
@@ -665,6 +713,8 @@ export class GcsWrapper {
                 this.pull_arc_of_parabola(p);
             } else if (p.type === 'bspline') {
                 this.pull_bspline(p);
+            } else if (p.type === 'bezier') {
+                this.pull_bezier(p);
             } else if (is_sketch_constraint(p)) {
                 this.pull_constraint(p);
             } else {
@@ -781,6 +831,20 @@ export class GcsWrapper {
             ...bs,
             weights,
             knots,
+        });
+    }
+
+    private pull_bezier(bezier: SketchBezier) {
+        const addr = this.get_primitive_addr(bezier.id);
+        const weight_count = bezier.control_points.length;
+        const weights: number[] = [];
+        for (let i = 0; i < weight_count; ++i) {
+            weights.push(this.gcs.get_p_param(addr + i));
+        }
+
+        this.sketch_index.set_primitive({
+            ...bezier,
+            weights,
         });
     }
 

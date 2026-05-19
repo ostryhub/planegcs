@@ -395,7 +395,7 @@ export class GcsSystemMock implements GcsSystem {
     add_constraint_internal_alignment_parabola_focus( e: Parabola,  p1: Point, tagId: number, driving: boolean, scale: number): void {
         return;
     }
-    add_constraint_internal_alignment_bspline_control_point( b: BSpline,  c: Circle, poleindex: number, tag: number, driving: boolean, scale: number): void {
+    add_constraint_internal_alignment_bspline_control_point( b: BSpline,  c: Circle, poleindex: number, tagId: number, driving: boolean, scale: number): void {
         return;
     }
     add_constraint_internal_alignment_knot_point( b: BSpline,  p: Point, knotindex: number, tagId: number, driving: boolean, scale: number): void {

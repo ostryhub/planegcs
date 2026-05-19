@@ -513,7 +513,7 @@ public:
     int addConstraintInternalAlignmentBSplineControlPoint(BSpline& b,
                                                           Circle& c,
                                                           unsigned int poleindex,
-                                                          int tag = 0,
+                                                          int tagId = 0,
                                                           bool driving = true);
     int addConstraintInternalAlignmentKnotPoint(BSpline& b,
                                                 Point& p,

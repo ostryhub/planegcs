@@ -57,7 +57,7 @@ describe("gcs_wrapper", () => {
     
     beforeEach(() => {
         const gcs = new gcs_factory.GcsSystem();
-        gcs_wrapper = new GcsWrapper(gcs);
+        gcs_wrapper = new GcsWrapper(gcs, gcs_factory);
     });
 
 

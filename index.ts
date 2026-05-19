@@ -4,7 +4,9 @@ export { type ModuleStatic } from "./planegcs_dist/planegcs.js";
 export { type SketchPrimitive, type SketchGeometry, type SketchParam,
          type SketchPoint, type SketchLine, type SketchCircle,
          type SketchArc, type SketchEllipse, type SketchArcOfEllipse,
+         type SketchBSpline, type SketchBezier,
         is_sketch_constraint, is_sketch_geometry, get_referenced_sketch_params, get_constrained_primitive_ids } from "./sketch/sketch_primitive.js";
+export { lower_bezier_to_bspline, validate_bspline_shape } from "./sketch/bezier.js";
 export { SketchIndex } from "./sketch/sketch_index.js";
 export * from "./planegcs_dist/constraints.js";
 
@@ -20,5 +22,5 @@ export async function make_gcs_wrapper(wasm_path?: string) {
     );
     const gcs = new module.GcsSystem();
 
-    return new GcsWrapper(gcs);
+    return new GcsWrapper(gcs, module);
 }

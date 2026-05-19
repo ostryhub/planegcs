@@ -23,6 +23,7 @@ import { arr_to_intvec, emsc_vec_to_arr } from '../sketch/emsc_vectors.js';
 import { GcsWrapper } from '../sketch/gcs_wrapper.js';
 import { test_params, test_sketch } from './test_data.js';
 import type { GcsSystem } from '../planegcs_dist/gcs_system.js';
+import type { SketchBSpline } from '../sketch/sketch_primitive.js';
 
 let gcs_factory: ModuleStatic;
 let gcs: GcsSystem; 
@@ -127,26 +128,23 @@ describe("planegcs", () => {
         // https://www.reddit.com/r/FreeCAD/comments/z250kg/is_there_a_better_set_of_constraints_i_can_use_to/
     // });
 
-    it("can add B-spline", () => {
+    it("can add B-spline with unique knots and multiplicities", () => {
         // for visualisation, see https://nurbscalculator.in/
         const weight_is = [1, 1, 1, 1].map(w => gcs.push_p_param(w, true));
 
-        // knot values
-        const knot_is = [
-            0, 0, 0, 0, 1, 1, 1, 1
-        ].map(knot_val => gcs.push_p_param(knot_val, true));
+        const knot_is = [0, 1].map(knot_val => gcs.push_p_param(knot_val, true));
 
         const control_point_is = [
-            -4, -4,
-            -2, 4,
-            2, -4,
-            4, 4
+            0, 0,
+            1, 2,
+            3, 2,
+            4, 0
         ].map(val => gcs.push_p_param(val, true));
 
         const degree = 3;
         const periodic = false;
 
-        const multiplicities = [4, 1, 1, 4];
+        const multiplicities = [4, 4];
 
         const b_spline = gcs.make_bspline(0, 1, 6, 7,
             arr_to_intvec(gcs_factory, control_point_is),
@@ -155,8 +153,114 @@ describe("planegcs", () => {
             arr_to_intvec(gcs_factory, multiplicities),
             degree, periodic);
 
-        // todo: test if b-spline is properly defined
+        expect(b_spline).toBeDefined();
+        b_spline.delete();
     })
+
+    it("solves a point onto a lowered Bezier B-spline", () => {
+        const gcs_wrapper = new GcsWrapper(gcs, gcs_factory);
+        gcs_wrapper.push_primitives_and_params([
+            {type: 'point', id: 'p0', x: 0, y: 0, fixed: true},
+            {type: 'point', id: 'p1', x: 1, y: 2, fixed: true},
+            {type: 'point', id: 'p2', x: 3, y: 2, fixed: true},
+            {type: 'point', id: 'p3', x: 4, y: 0, fixed: true},
+            {type: 'point', id: 'target', x: 2, y: 0, fixed: false},
+            {type: 'bezier', id: 'curve', control_points: ['p0', 'p1', 'p2', 'p3']},
+            {type: 'point_on_bspline', id: 'constraint', p_id: 'target', b_id: 'curve', pointparam: 0.5},
+        ]);
+
+        expect(gcs_wrapper.solve()).toBe(SolveStatus.Success);
+        gcs_wrapper.apply_solution();
+
+        const target = gcs_wrapper.sketch_index.get_sketch_point('target');
+        expect(target.x).toBeCloseTo(2, 6);
+        expect(target.y).toBeCloseTo(1.5, 6);
+    });
+
+    it("pushes, solves, and pulls a B-spline without losing scalar curve data", () => {
+        const gcs_wrapper = new GcsWrapper(gcs, gcs_factory);
+        gcs_wrapper.push_primitives_and_params([
+            {type: 'point', id: 'p0', x: 0, y: 0, fixed: true},
+            {type: 'point', id: 'p1', x: 1, y: 2, fixed: true},
+            {type: 'point', id: 'p2', x: 3, y: 2, fixed: true},
+            {type: 'point', id: 'p3', x: 4, y: 0, fixed: true},
+            {type: 'point', id: 'target', x: 2, y: 0, fixed: false},
+            {
+                type: 'bspline',
+                id: 'curve',
+                start_id: 'p0',
+                end_id: 'p3',
+                control_points: ['p0', 'p1', 'p2', 'p3'],
+                weights: [1, 1, 1, 1],
+                knots: [0, 1],
+                multiplicities: [4, 4],
+                degree: 3,
+                periodic: false,
+                mutable_weights: false,
+                mutable_knots: false,
+            },
+            {type: 'point_on_bspline', id: 'constraint', p_id: 'target', b_id: 'curve', pointparam: 0.5},
+        ]);
+
+        expect(gcs_wrapper.solve()).toBe(SolveStatus.Success);
+        gcs_wrapper.apply_solution();
+
+        const target = gcs_wrapper.sketch_index.get_sketch_point('target');
+        expect(target.x).toBeCloseTo(2, 6);
+        expect(target.y).toBeCloseTo(1.5, 6);
+
+        const curve = gcs_wrapper.sketch_index.get_primitive_or_fail('curve') as SketchBSpline;
+        expect(curve.weights).toEqual([1, 1, 1, 1]);
+        expect(curve.knots).toEqual([0, 1]);
+        expect(curve.multiplicities).toEqual([4, 4]);
+    });
+
+    it("solves a Bezier primitive to the same point-on-curve result as its lowered B-spline", () => {
+        const bezier_result = solve_cubic_curve_point('bezier');
+        gcs.clear_data();
+        const bspline_result = solve_cubic_curve_point('bspline');
+
+        expect(bezier_result.x).toBeCloseTo(bspline_result.x, 8);
+        expect(bezier_result.y).toBeCloseTo(bspline_result.y, 8);
+        expect(bezier_result.x).toBeCloseTo(2, 6);
+        expect(bezier_result.y).toBeCloseTo(1.5, 6);
+    });
+
+    it("constrains a line tangent to a B-spline at an interior knot", () => {
+        const gcs_wrapper = new GcsWrapper(gcs, gcs_factory);
+        gcs_wrapper.push_primitives_and_params([
+            {type: 'point', id: 'p0', x: 0, y: 0, fixed: true},
+            {type: 'point', id: 'p1', x: 1, y: 1, fixed: true},
+            {type: 'point', id: 'p2', x: 3, y: 1, fixed: true},
+            {type: 'point', id: 'p3', x: 4, y: 0, fixed: true},
+            {type: 'point', id: 'line-start', x: 0, y: 0, fixed: true},
+            {type: 'point', id: 'line-end', x: 1, y: 2, fixed: false},
+            {type: 'line', id: 'line', p1_id: 'line-start', p2_id: 'line-end'},
+            {
+                type: 'bspline',
+                id: 'curve',
+                start_id: 'p0',
+                end_id: 'p3',
+                control_points: ['p0', 'p1', 'p2', 'p3'],
+                weights: [1, 1, 1, 1],
+                knots: [0, 0.5, 1],
+                multiplicities: [3, 1, 3],
+                degree: 2,
+                periodic: false,
+                mutable_weights: false,
+                mutable_knots: false,
+            },
+            {type: 'equal', id: 'line-end-x', param1: {o_id: 'line-end', prop: 'x'}, param2: 1},
+            {type: 'tangent_at_bspline_knot', id: 'tangent', b_id: 'curve', l_id: 'line', knotindex: 1},
+        ]);
+
+        expect(gcs_wrapper.solve()).toBe(SolveStatus.Success);
+        gcs_wrapper.apply_solution();
+
+        const line_end = gcs_wrapper.sketch_index.get_sketch_point('line-end');
+        expect(line_end.x).toBeCloseTo(1, 6);
+        expect(line_end.y).toBeCloseTo(0, 6);
+    });
 
     it("returns correct enum status", () => {
         gcs.push_p_param(1, true);
@@ -183,7 +287,7 @@ describe("planegcs", () => {
     });
 
     it('can handle big sketch with temp constraints', () => {
-        const gcs_wrapper = new GcsWrapper(gcs);
+        const gcs_wrapper = new GcsWrapper(gcs, gcs_factory);
 
         for (const [param, value] of test_params.entries()) {
             gcs_wrapper.push_sketch_param(param, value);
@@ -205,4 +309,38 @@ describe("planegcs", () => {
         gcs.set_covergence_threshold(0.001);
         expect(gcs.get_convergence_threshold()).toBe(0.001);
     });
+
+    function solve_cubic_curve_point(curve_type: 'bezier' | 'bspline') {
+        const gcs_wrapper = new GcsWrapper(gcs, gcs_factory);
+        const curve = curve_type === 'bezier'
+            ? {type: 'bezier' as const, id: 'curve', control_points: ['p0', 'p1', 'p2', 'p3']}
+            : {
+                type: 'bspline' as const,
+                id: 'curve',
+                start_id: 'p0',
+                end_id: 'p3',
+                control_points: ['p0', 'p1', 'p2', 'p3'],
+                weights: [1, 1, 1, 1],
+                knots: [0, 1],
+                multiplicities: [4, 4],
+                degree: 3,
+                periodic: false,
+                mutable_weights: false,
+                mutable_knots: false,
+            };
+
+        gcs_wrapper.push_primitives_and_params([
+            {type: 'point', id: 'p0', x: 0, y: 0, fixed: true},
+            {type: 'point', id: 'p1', x: 1, y: 2, fixed: true},
+            {type: 'point', id: 'p2', x: 3, y: 2, fixed: true},
+            {type: 'point', id: 'p3', x: 4, y: 0, fixed: true},
+            {type: 'point', id: 'target', x: 2, y: 0, fixed: false},
+            curve,
+            {type: 'point_on_bspline', id: 'constraint', p_id: 'target', b_id: 'curve', pointparam: 0.5},
+        ]);
+
+        expect(gcs_wrapper.solve()).toBe(SolveStatus.Success);
+        gcs_wrapper.apply_solution();
+        return gcs_wrapper.sketch_index.get_sketch_point('target');
+    }
 });

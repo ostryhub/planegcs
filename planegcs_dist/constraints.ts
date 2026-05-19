@@ -812,8 +812,7 @@ export interface InternalAlignmentBSplineControlPoint extends Id {
     type: 'internal_alignment_bspline_control_point'; 
      b_id: oid; // BSpline 
      c_id: oid; // Circle
-    poleindex: number;
-    tag?: number;
+    poleindex: number; 
     driving?: boolean;
     temporary?: boolean;
     scale?: number;
