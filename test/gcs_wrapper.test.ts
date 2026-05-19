@@ -50,6 +50,14 @@ class TestIntVector {
 
 const gcs_module = { IntVector: TestIntVector } as unknown as ModuleStatic;
 
+function make_int_vector(values: number[]) {
+    const vector = new TestIntVector();
+    for (const value of values) {
+        vector.push_back(value);
+    }
+    return vector;
+}
+
 // the prefix 'basic:' makes this test run before the wasm compilation
 // in the pipeline process
 describe("basic: gcs_wrapper", () => {
@@ -173,6 +181,42 @@ describe("basic: gcs_wrapper", () => {
         expect(gcs.push_p_param).toHaveBeenNthCalledWith(12, 1, true);
         expect(gcs.push_p_param).toHaveBeenNthCalledWith(13, 0, true);
         expect(gcs.push_p_param).toHaveBeenNthCalledWith(14, 1, true);
+    });
+
+    it("maps diagnosed DOF parameter indices back to sketch properties", () => {
+        gcs_wrapper.push_primitive({type: 'point', id: 'fixed', x: 0, y: 0, fixed: true});
+        gcs_wrapper.push_primitive({type: 'point', id: 'free', x: 1, y: 2, fixed: false});
+        gcs_wrapper.push_primitive({type: 'circle', id: 'circle', c_id: 'fixed', radius: 3});
+
+        vi.spyOn(gcs, 'diagnose_system').mockReturnValue(2);
+        vi.spyOn(gcs, 'get_dependent_param_indices').mockReturnValue(make_int_vector([3, 4, 3]));
+        vi.spyOn(gcs, 'get_dependent_param_group_indices').mockReturnValue(make_int_vector([3, -1, 4]));
+        vi.spyOn(gcs, 'get_is_fixed').mockImplementation((index: number) => index < 2);
+
+        const report = gcs_wrapper.get_dof_report();
+
+        expect(report.dof).toBe(2);
+        expect(report.is_fully_constrained).toBe(false);
+        expect(report.free_parameter_indices).toEqual([3, 4]);
+        expect(report.dependent_parameter_groups).toEqual([[3], [4]]);
+        expect(report.parameters.find((param) => param.index === 3)).toMatchObject({
+            oid: 'free',
+            entity_type: 'point',
+            property: 'y',
+            status: 'free',
+        });
+        expect(report.parameters.find((param) => param.index === 4)).toMatchObject({
+            oid: 'circle',
+            entity_type: 'circle',
+            property: 'radius',
+            status: 'free',
+        });
+        expect(report.parameters.find((param) => param.index === 2)).toMatchObject({
+            oid: 'free',
+            entity_type: 'point',
+            property: 'x',
+            status: 'constrained',
+        });
     });
 
     it("calls add_constraint_equal method when adding an equal constraint", () => {

@@ -61,6 +61,7 @@ export interface GcsSystem {
     set_covergence_threshold: (threshold: number) => void;
     get_convergence_threshold: () => number;
     solve_system: (algorithm: number) => number;
+    diagnose_system: (algorithm: number) => number;
     get_p_params: () => DoubleVector;
     clear_data: () => void;
     apply_solution: () => void;
@@ -71,6 +72,8 @@ export interface GcsSystem {
     get_conflicting: () => IntVector;
     get_redundant: () => IntVector;
     get_partially_redundant: () => IntVector;
+    get_dependent_param_indices: () => IntVector;
+    get_dependent_param_group_indices: () => IntVector;
     clear_by_id: (id: number) => void;
     set_debug_mode: (debug_mode: number) => void;
     get_debug_mode: () => number;

@@ -15,6 +15,12 @@ export { init_planegcs_module };
 
 import { GcsWrapper } from "./sketch/gcs_wrapper.js"; 
 export { GcsWrapper };
+export type {
+    SketchDofParameter,
+    SketchDofParameterReport,
+    SketchDofParameterStatus,
+    SketchDofReport,
+} from "./sketch/gcs_wrapper.js";
 
 export async function make_gcs_wrapper(wasm_path?: string) { 
     const module = await init_planegcs_module(

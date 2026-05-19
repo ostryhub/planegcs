@@ -28,6 +28,29 @@ import get_property_offset, { property_offsets } from "./geom_params.js";
 import type { oid } from "../planegcs_dist/id";
 import type { ModuleStatic } from "../planegcs_dist/planegcs.js";
 
+export type SketchDofParameterStatus = 'fixed' | 'constrained' | 'free';
+
+export interface SketchDofParameter {
+    index: number;
+    oid: oid;
+    entity_type: SketchPrimitive['type'] | 'sketch_param';
+    property: string;
+    element_index?: number;
+}
+
+export interface SketchDofParameterReport extends SketchDofParameter {
+    status: SketchDofParameterStatus;
+}
+
+export interface SketchDofReport {
+    dof: number;
+    is_fully_constrained: boolean;
+    free_parameter_indices: number[];
+    dependent_parameter_indices: number[];
+    dependent_parameter_groups: number[][];
+    parameters: SketchDofParameterReport[];
+}
+
 export class GcsWrapper { 
     gcs: GcsSystem;
     private readonly gcs_module?: ModuleStatic;
@@ -35,6 +58,7 @@ export class GcsWrapper {
     sketch_index = new SketchIndex();
     // sketch param name -> index in gcs params
     private sketch_param_index: Map<string, number> = new Map(); 
+    private param_metadata: Map<number, SketchDofParameter> = new Map();
     // nondriving constraint id -> list of its properties pushed as p-params (in order)
     private nondriving_constraint_params_order: Map<oid, string[]> = new Map(); 
     private enable_equal_optimization = false;
@@ -74,6 +98,7 @@ export class GcsWrapper {
         this.release_retained_gcs_geometry();
         this.p_param_index.clear();
         this.sketch_param_index.clear();
+        this.param_metadata.clear();
         this.sketch_index.clear();
     }
  
@@ -187,6 +212,41 @@ export class GcsWrapper {
         );
     }
 
+    get_dof_report(algorithm: Algorithm = Algorithm.DogLeg): SketchDofReport {
+        const dof = this.gcs.diagnose_system(algorithm);
+        const dependent_parameter_indices = unique_numbers(
+            emsc_vec_to_arr(this.gcs.get_dependent_param_indices())
+        );
+        const free_parameter_indices = [...dependent_parameter_indices];
+        const free_index_set = new Set(free_parameter_indices);
+        const dependent_parameter_groups = split_flattened_groups(
+            emsc_vec_to_arr(this.gcs.get_dependent_param_group_indices())
+        );
+        const parameters: SketchDofParameterReport[] = [];
+
+        for (let index = 0; index < this.gcs.params_size(); index += 1) {
+            const metadata = this.param_metadata.get(index);
+            if (metadata === undefined) {
+                continue;
+            }
+            const status = this.gcs.get_is_fixed(index)
+                ? 'fixed'
+                : free_index_set.has(index)
+                    ? 'free'
+                    : 'constrained';
+            parameters.push({ ...metadata, status });
+        }
+
+        return {
+            dof,
+            is_fully_constrained: dof === 0,
+            free_parameter_indices,
+            dependent_parameter_indices,
+            dependent_parameter_groups,
+            parameters,
+        };
+    }
+
     has_gcs_conflicting_constraints(): boolean {
         return this.gcs.has_conflicting();
     }
@@ -203,6 +263,11 @@ export class GcsWrapper {
         const pos = this.gcs.params_size();
         this.gcs.push_p_param(value, fixed);
         this.sketch_param_index.set(name, pos);
+        this.set_param_metadata(pos, {
+            oid: name,
+            entity_type: 'sketch_param',
+            property: 'value',
+        });
         return pos;
     }
 
@@ -240,12 +305,30 @@ export class GcsWrapper {
         return pos;
     }
 
+    private set_param_metadata(
+        index: number,
+        metadata: Omit<SketchDofParameter, 'index'>
+    ) {
+        this.param_metadata.set(index, { index, ...metadata });
+    }
+
     private push_point(p: SketchPoint) {
         if (this.p_param_index.has(p.id)) {
             return;
         }
 
         this.push_p_params(p.id, [p.x, p.y], p.fixed);
+        const point_addr = this.get_primitive_addr(p.id);
+        this.set_param_metadata(point_addr + property_offsets.point.x, {
+            oid: p.id,
+            entity_type: 'point',
+            property: 'x',
+        });
+        this.set_param_metadata(point_addr + property_offsets.point.y, {
+            oid: p.id,
+            entity_type: 'point',
+            property: 'y',
+        });
     }
 
     private push_line(l: SketchLine) {
@@ -260,6 +343,12 @@ export class GcsWrapper {
         this.push_point(p);
 
         this.push_p_params(c.id, [c.radius], false);
+        const circle_addr = this.get_primitive_addr(c.id);
+        this.set_param_metadata(circle_addr + property_offsets.circle.radius, {
+            oid: c.id,
+            entity_type: 'circle',
+            property: 'radius',
+        });
     }
 
     private push_arc(a: SketchArc) {
@@ -273,6 +362,22 @@ export class GcsWrapper {
         this.push_point(end);
 
         this.push_p_params(a.id, [a.start_angle, a.end_angle, a.radius], false);
+        const arc_addr = this.get_primitive_addr(a.id);
+        this.set_param_metadata(arc_addr + property_offsets.arc.start_angle, {
+            oid: a.id,
+            entity_type: 'arc',
+            property: 'start_angle',
+        });
+        this.set_param_metadata(arc_addr + property_offsets.arc.end_angle, {
+            oid: a.id,
+            entity_type: 'arc',
+            property: 'end_angle',
+        });
+        this.set_param_metadata(arc_addr + property_offsets.arc.radius, {
+            oid: a.id,
+            entity_type: 'arc',
+            property: 'radius',
+        });
     }
 
     private push_ellipse(e: SketchEllipse) {
@@ -283,6 +388,12 @@ export class GcsWrapper {
         this.push_point(focus1);
 
         this.push_p_params(e.id, [e.radmin], false);
+        const ellipse_addr = this.get_primitive_addr(e.id);
+        this.set_param_metadata(ellipse_addr + property_offsets.ellipse.radmin, {
+            oid: e.id,
+            entity_type: 'ellipse',
+            property: 'radmin',
+        });
     }
 
     private push_hyperbola(h: SketchHyperbola) {
@@ -293,6 +404,12 @@ export class GcsWrapper {
         this.push_point(focus1);
 
         this.push_p_params(h.id, [h.radmin], false);
+        const hyperbola_addr = this.get_primitive_addr(h.id);
+        this.set_param_metadata(hyperbola_addr + property_offsets.hyperbola.radmin, {
+            oid: h.id,
+            entity_type: 'hyperbola',
+            property: 'radmin',
+        });
     }
 
     private push_arc_of_hyperbola(ah: SketchArcOfHyperbola) {
@@ -309,6 +426,22 @@ export class GcsWrapper {
         this.push_point(end);
 
         this.push_p_params(ah.id, [ah.start_angle, ah.end_angle, ah.radmin], false);
+        const hyperbola_arc_addr = this.get_primitive_addr(ah.id);
+        this.set_param_metadata(hyperbola_arc_addr + property_offsets.arc_of_hyperbola.start_angle, {
+            oid: ah.id,
+            entity_type: 'arc_of_hyperbola',
+            property: 'start_angle',
+        });
+        this.set_param_metadata(hyperbola_arc_addr + property_offsets.arc_of_hyperbola.end_angle, {
+            oid: ah.id,
+            entity_type: 'arc_of_hyperbola',
+            property: 'end_angle',
+        });
+        this.set_param_metadata(hyperbola_arc_addr + property_offsets.arc_of_hyperbola.radmin, {
+            oid: ah.id,
+            entity_type: 'arc_of_hyperbola',
+            property: 'radmin',
+        });
     }
 
     private push_parabola(p: SketchParabola) {
@@ -333,9 +466,20 @@ export class GcsWrapper {
         this.push_point(end);
 
         this.push_p_params(ap.id, [ap.start_angle, ap.end_angle], false);
+        const parabola_arc_addr = this.get_primitive_addr(ap.id);
+        this.set_param_metadata(parabola_arc_addr + property_offsets.arc_of_parabola.start_angle, {
+            oid: ap.id,
+            entity_type: 'arc_of_parabola',
+            property: 'start_angle',
+        });
+        this.set_param_metadata(parabola_arc_addr + property_offsets.arc_of_parabola.end_angle, {
+            oid: ap.id,
+            entity_type: 'arc_of_parabola',
+            property: 'end_angle',
+        });
     }
 
-    private push_bspline(bs: SketchBSpline) {
+    private push_bspline(bs: SketchBSpline, entity_type: 'bspline' | 'bezier' = 'bspline') {
         validate_bspline_shape(bs);
 
         const start = this.sketch_index.get_sketch_point(bs.start_id);
@@ -349,14 +493,17 @@ export class GcsWrapper {
             this.push_point(cp);
         }
 
-        this.push_bspline_scalar_params(bs);
+        this.push_bspline_scalar_params(bs, entity_type);
     }
 
     private push_bezier(bezier: SketchBezier) {
-        this.push_bspline(lower_bezier_to_bspline(bezier));
+        this.push_bspline(lower_bezier_to_bspline(bezier), 'bezier');
     }
 
-    private push_bspline_scalar_params(bs: SketchBSpline): number {
+    private push_bspline_scalar_params(
+        bs: SketchBSpline,
+        entity_type: 'bspline' | 'bezier' = 'bspline'
+    ): number {
         const pos = this.gcs.params_size();
         const are_weights_fixed = !(bs.mutable_weights ?? true);
         const are_knots_fixed = !(bs.mutable_knots ?? false);
@@ -370,6 +517,24 @@ export class GcsWrapper {
 
         if (!this.p_param_index.has(bs.id)) {
             this.p_param_index.set(bs.id, pos);
+        }
+
+        for (let index = 0; index < bs.weights.length; index += 1) {
+            this.set_param_metadata(pos + index, {
+                oid: bs.id,
+                entity_type,
+                property: 'weight',
+                element_index: index,
+            });
+        }
+        const knot_offset = bs.weights.length;
+        for (let index = 0; index < bs.knots.length; index += 1) {
+            this.set_param_metadata(pos + knot_offset + index, {
+                oid: bs.id,
+                entity_type,
+                property: 'knot',
+                element_index: index,
+            });
         }
 
         return pos;
@@ -389,6 +554,22 @@ export class GcsWrapper {
         this.push_point(end);
 
         this.push_p_params(ae.id, [ae.start_angle, ae.end_angle, ae.radmin], false);
+        const ellipse_arc_addr = this.get_primitive_addr(ae.id);
+        this.set_param_metadata(ellipse_arc_addr + property_offsets.arc_of_ellipse.start_angle, {
+            oid: ae.id,
+            entity_type: 'arc_of_ellipse',
+            property: 'start_angle',
+        });
+        this.set_param_metadata(ellipse_arc_addr + property_offsets.arc_of_ellipse.end_angle, {
+            oid: ae.id,
+            entity_type: 'arc_of_ellipse',
+            property: 'end_angle',
+        });
+        this.set_param_metadata(ellipse_arc_addr + property_offsets.arc_of_ellipse.radmin, {
+            oid: ae.id,
+            entity_type: 'arc_of_ellipse',
+            property: 'radmin',
+        });
     }
 
     private sketch_primitive_to_gcs(o: SketchPrimitive) : GcsGeometry {
@@ -604,6 +785,11 @@ export class GcsWrapper {
                         }
                     }
                     const pos = this.push_p_params(c.id, [val], is_fixed);
+                    this.set_param_metadata(pos, {
+                        oid: c.id,
+                        entity_type: c.type,
+                        property: parameter,
+                    });
                     add_constraint_args.push(pos);
                 } else if (typeof val === 'string') {
                     // this is a sketch param
@@ -876,4 +1062,36 @@ export class GcsWrapper {
 
         this.sketch_index.set_primitive(constraint_copy);
     }
+}
+
+function unique_numbers(values: number[]): number[] {
+    const result: number[] = [];
+    const seen = new Set<number>();
+    for (const value of values) {
+        if (seen.has(value)) {
+            continue;
+        }
+        seen.add(value);
+        result.push(value);
+    }
+    return result;
+}
+
+function split_flattened_groups(values: number[]): number[][] {
+    const groups: number[][] = [];
+    let current: number[] = [];
+    for (const value of values) {
+        if (value === -1) {
+            if (current.length > 0) {
+                groups.push(current);
+            }
+            current = [];
+            continue;
+        }
+        current.push(value);
+    }
+    if (current.length > 0) {
+        groups.push(current);
+    }
+    return groups;
 }

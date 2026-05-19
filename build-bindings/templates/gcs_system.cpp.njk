@@ -108,6 +108,22 @@ class GcsSystem : System
             return solve(solved_p_params, true, alg);
         }
 
+        int diagnose_system(int algorithm)
+        {
+            Algorithm alg = static_cast<Algorithm>(algorithm);
+            vector<double *> solved_p_params;
+            for (int i = 0; i < p_params.size(); ++i)
+            {
+                if (!is_fixed[i])
+                {
+                    solved_p_params.push_back(p_params[i]);
+                }
+            }
+
+            declareUnknowns(solved_p_params);
+            return diagnose(alg);
+        }
+
         vector<double> get_p_params()
         {
             vector<double> p;
@@ -173,6 +189,98 @@ class GcsSystem : System
             vector<int> partially_redundant;
             getPartiallyRedundant(partially_redundant);
             return partially_redundant;
+        }
+
+        vector<int> get_dependent_param_indices()
+        {
+            vector<double *> dependent_params;
+            getDependentParams(dependent_params);
+            vector<int> indices;
+            indices.reserve(dependent_params.size());
+            int movable_param_count = 0;
+            for (int index = 0; index < is_fixed.size(); ++index)
+            {
+                if (!is_fixed[index])
+                {
+                    movable_param_count += 1;
+                }
+            }
+            if (dependent_params.empty() && dofsNumber() == movable_param_count)
+            {
+                for (int index = 0; index < is_fixed.size(); ++index)
+                {
+                    if (!is_fixed[index])
+                    {
+                        indices.push_back(index);
+                    }
+                }
+                return indices;
+            }
+            for (const double *param : dependent_params)
+            {
+                for (int index = 0; index < p_params.size(); ++index)
+                {
+                    if (p_params[index] == param)
+                    {
+                        indices.push_back(index);
+                        break;
+                    }
+                }
+            }
+            return indices;
+        }
+
+        vector<int> get_dependent_param_group_indices()
+        {
+            vector<vector<double *>> dependent_groups;
+            getDependentParamsGroups(dependent_groups);
+
+            vector<int> flattened;
+            int movable_param_count = 0;
+            for (int index = 0; index < is_fixed.size(); ++index)
+            {
+                if (!is_fixed[index])
+                {
+                    movable_param_count += 1;
+                }
+            }
+            if (dependent_groups.empty() && dofsNumber() == movable_param_count)
+            {
+                bool first = true;
+                for (int index = 0; index < is_fixed.size(); ++index)
+                {
+                    if (is_fixed[index])
+                    {
+                        continue;
+                    }
+                    if (!first)
+                    {
+                        flattened.push_back(-1);
+                    }
+                    flattened.push_back(index);
+                    first = false;
+                }
+                return flattened;
+            }
+            for (int group_index = 0; group_index < dependent_groups.size(); ++group_index)
+            {
+                if (group_index > 0)
+                {
+                    flattened.push_back(-1);
+                }
+                for (const double *param : dependent_groups[group_index])
+                {
+                    for (int index = 0; index < p_params.size(); ++index)
+                    {
+                        if (p_params[index] == param)
+                        {
+                            flattened.push_back(index);
+                            break;
+                        }
+                    }
+                }
+            }
+            return flattened;
         }
 
         void clear_by_id(int id)
@@ -400,6 +508,7 @@ EMSCRIPTEN_BINDINGS(module) {
         .function("push_p_param", &GcsSystem::push_p_param)
         .function("get_is_fixed", &GcsSystem::get_is_fixed)
         .function("solve_system", &GcsSystem::solve_system)
+        .function("diagnose_system", &GcsSystem::diagnose_system)
         .function("clear_data", &GcsSystem::clear_data)
         /* functions adapted from GCS::System */
         .function("apply_solution", &GcsSystem::apply_solution)
@@ -407,6 +516,8 @@ EMSCRIPTEN_BINDINGS(module) {
         .function("get_conflicting", &GcsSystem::get_conflicting)
         .function("get_redundant", &GcsSystem::get_redundant)
         .function("get_partially_redundant", &GcsSystem::get_partially_redundant)
+        .function("get_dependent_param_indices", &GcsSystem::get_dependent_param_indices)
+        .function("get_dependent_param_group_indices", &GcsSystem::get_dependent_param_group_indices)
         .function("has_conflicting", &GcsSystem::has_conflicting)
         .function("has_redundant", &GcsSystem::has_redundant)
         .function("has_partially_redundant", &GcsSystem::has_partially_redundant)

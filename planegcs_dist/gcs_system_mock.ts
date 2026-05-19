@@ -60,6 +60,10 @@ export class GcsSystemMock implements GcsSystem {
         // @ts-expect-error: return in mock can be undefined
         return undefined;
     }
+    diagnose_system(algorithm: number): number {
+        // @ts-expect-error: return in mock can be undefined
+        return undefined;
+    }
     get_p_params(): DoubleVector {
         // @ts-expect-error: return in mock can be undefined
         return undefined;
@@ -95,6 +99,14 @@ export class GcsSystemMock implements GcsSystem {
         return undefined;
     }
     get_partially_redundant(): IntVector {
+        // @ts-expect-error: return in mock can be undefined
+        return undefined;
+    }
+    get_dependent_param_indices(): IntVector {
+        // @ts-expect-error: return in mock can be undefined
+        return undefined;
+    }
+    get_dependent_param_group_indices(): IntVector {
         // @ts-expect-error: return in mock can be undefined
         return undefined;
     }

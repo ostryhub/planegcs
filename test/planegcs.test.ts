@@ -104,6 +104,36 @@ describe("planegcs", () => {
         expect(gcs.dof()).toBe(1);
     });
 
+    it("reports exact dependent parameter indices from diagnosis", () => {
+        const p1x_i = gcs.push_p_param(1, true);
+        const p1y_i = gcs.push_p_param(2, true);
+        const p2x_i = gcs.push_p_param(2, false);
+        const p2y_i = gcs.push_p_param(3, false);
+
+        expect(gcs.diagnose_system(Algorithm.DogLeg)).toBe(2);
+        expect(emsc_vec_to_arr(gcs.get_dependent_param_indices())).toEqual([2, 3]);
+
+        const line = gcs.make_line(p1x_i, p1y_i, p2x_i, p2y_i);
+        gcs.add_constraint_vertical_l(line, 1, true, 1);
+
+        expect(gcs.diagnose_system(Algorithm.DogLeg)).toBe(1);
+        expect(emsc_vec_to_arr(gcs.get_dependent_param_indices())).toEqual([3]);
+    });
+
+    it("reports sparse dependent parameter indices across unrelated entities", () => {
+        const centerx_i = gcs.push_p_param(0, true);
+        const centery_i = gcs.push_p_param(0, true);
+        const pointx_i = gcs.push_p_param(1, false);
+        gcs.push_p_param(2, true);
+        const radius_i = gcs.push_p_param(3, false);
+
+        gcs.make_point(pointx_i, centery_i);
+        gcs.make_circle(centerx_i, centery_i, radius_i);
+
+        expect(gcs.diagnose_system(Algorithm.DogLeg)).toBe(2);
+        expect(emsc_vec_to_arr(gcs.get_dependent_param_indices())).toEqual([2, 4]);
+    });
+
     it("detects redundant constraints", () => {
         const p1x_i = gcs.push_p_param(1, true);
         const p1y_i = gcs.push_p_param(2, true);
